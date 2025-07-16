@@ -15,9 +15,7 @@ interface IUniswapV2Router {
 }
 
 /**
- * A smart contract that allows changing a state variable of the contract and tracking the changes
- * It also allows the owner to withdraw the Ether in the contract
- * @author BuidlGuidl
+ * A smart contract that takes ETH and sends back DAI swapping it using uniswap v2
  */
 contract YourContract is Ownable, Pausable {
     address private constant UNISWAP_V2_ROUTER = 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D;
