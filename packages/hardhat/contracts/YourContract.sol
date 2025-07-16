@@ -1,78 +1,101 @@
 //SPDX-License-Identifier: MIT
 pragma solidity >=0.8.0 <0.9.0;
 
-// Useful for debugging. Remove when deploying to a live network.
-import "hardhat/console.sol";
+import "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
 
-// Use openzeppelin to inherit battle-tested implementations (ERC20, ERC721, etc)
-// import "@openzeppelin/contracts/access/Ownable.sol";
+interface IUniswapV2Router {
+    function swapExactETHForTokens(
+        uint amountOutMin,
+        address[] calldata path,
+        address to,
+        uint deadline
+    ) external payable returns (uint[] memory amounts);
+}
 
 /**
  * A smart contract that allows changing a state variable of the contract and tracking the changes
  * It also allows the owner to withdraw the Ether in the contract
  * @author BuidlGuidl
  */
-contract YourContract {
-    // State Variables
-    address public immutable owner;
-    string public greeting = "Building Unstoppable Apps!!!";
-    bool public premium = false;
-    uint256 public totalCounter = 0;
-    mapping(address => uint) public userGreetingCounter;
+contract YourContract is Ownable, Pausable {
+    address private constant UNISWAP_V2_ROUTER = 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D;
+    address private constant DAI = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
+    address private constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
 
-    // Events: a way to emit log statements from smart contract that can be listened to by external parties
-    event GreetingChange(address indexed greetingSetter, string newGreeting, bool premium, uint256 value);
+    address private constant DAI_USD_PAIR = 0xAed0c38402a5d19df6E4c03F4E2DceD6e29c1ee9;
+    address private constant ETH_USD_PAIR = 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419;
 
-    // Constructor: Called once on contract deployment
-    // Check packages/hardhat/deploy/00_deploy_your_contract.ts
-    constructor(address _owner) {
-        owner = _owner;
-    }
+    AggregatorV3Interface ethUsdPriceFeed;
+    AggregatorV3Interface daiUsdPriceFeed;
 
-    // Modifier: used to define a set of rules that must be met before or after a function is executed
-    // Check the withdraw() function
-    modifier isOwner() {
-        // msg.sender: predefined variable that represents address of the account that called the current function
-        require(msg.sender == owner, "Not the Owner");
-        _;
-    }
+    IUniswapV2Router private router;
 
-    /**
-     * Function that allows anyone to change the state variable "greeting" of the contract and increase the counters
-     *
-     * @param _newGreeting (string memory) - new greeting to save on the contract
-     */
-    function setGreeting(string memory _newGreeting) public payable {
-        // Print data to the hardhat chain console. Remove when deploying to a live network.
-        console.log("Setting new greeting '%s' from %s", _newGreeting, msg.sender);
-
-        // Change state variables
-        greeting = _newGreeting;
-        totalCounter += 1;
-        userGreetingCounter[msg.sender] += 1;
-
-        // msg.value: built-in global variable that represents the amount of ether sent with the transaction
-        if (msg.value > 0) {
-            premium = true;
-        } else {
-            premium = false;
-        }
-
-        // emit: keyword used to trigger an event
-        emit GreetingChange(msg.sender, _newGreeting, msg.value > 0, msg.value);
+    constructor(address _owner) Ownable(_owner) {
+        router = IUniswapV2Router(UNISWAP_V2_ROUTER);
+        ethUsdPriceFeed = AggregatorV3Interface(ETH_USD_PAIR);
+        daiUsdPriceFeed = AggregatorV3Interface(DAI_USD_PAIR);
     }
 
     /**
      * Function that allows the owner to withdraw all the Ether in the contract
      * The function can only be called by the owner of the contract as defined by the isOwner modifier
      */
-    function withdraw() public isOwner {
-        (bool success, ) = owner.call{ value: address(this).balance }("");
+    function withdraw() public onlyOwner {
+        (bool success, ) = payable(owner()).call{ value: address(this).balance }("");
         require(success, "Failed to send Ether");
     }
 
-    /**
-     * Function that allows the contract to receive ETH
-     */
-    receive() external payable {}
+    function getEthToDaiPrice() public view returns (uint) {
+        (, int ethUsd, , , ) = ethUsdPriceFeed.latestRoundData();
+        (, int daiUsd, , , ) = daiUsdPriceFeed.latestRoundData();
+        return (uint(ethUsd) * 1e18) / uint(daiUsd);
+    }
+
+    function getEthToUsdPrice() public view returns (uint) {
+        (, int ethUsd, , , ) = ethUsdPriceFeed.latestRoundData();
+        return uint(ethUsd);
+    }
+
+    function getDaiToUsdPrice() public view returns (uint) {
+        (, int daiUsd, , , ) = daiUsdPriceFeed.latestRoundData();
+        return uint(daiUsd);
+    }
+
+    function swapEthToDai() public payable whenNotPaused {
+        require(msg.value > 0, "Send ETH to swap");
+
+        address[] memory path = new address[](2);
+        path[0] = WETH;
+        path[1] = DAI;
+
+        uint slippage = 50; // 0.5%
+        uint multiplier = 10000; // 100%
+        uint deadline = block.timestamp + 300; // 5 minutes
+
+        uint amountOutMin = getEthToDaiPrice() * msg.value * (multiplier - slippage) / multiplier / 1e18;
+
+        router.swapExactETHForTokens{ value: msg.value }(
+            amountOutMin,
+            path,
+            msg.sender,
+            deadline
+        );
+    }
+
+    function pause() public onlyOwner {
+        _pause();
+    }
+
+    function unpause() public onlyOwner {
+        _unpause();
+    }
+
+    // Allow contract to receive ETH
+    receive() external payable {
+        if (msg.value > 0) {
+            swapEthToDai();
+        }
+    }
 }

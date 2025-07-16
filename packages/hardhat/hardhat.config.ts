@@ -37,7 +37,7 @@ const config: HardhatUserConfig = {
       },
     ],
   },
-  defaultNetwork: "localhost",
+  defaultNetwork: "mainnet",
   namedAccounts: {
     deployer: {
       // By default, it will take the first Hardhat account as the deployer
@@ -54,7 +54,7 @@ const config: HardhatUserConfig = {
       },
     },
     mainnet: {
-      url: `https://eth-mainnet.alchemyapi.io/v2/${providerApiKey}`,
+      url: `https://eth.drpc.org`,
       accounts: [deployerPrivateKey],
     },
     sepolia: {
@@ -145,6 +145,7 @@ const config: HardhatUserConfig = {
 task("deploy").setAction(async (args, hre, runSuper) => {
   // Run the original deploy task
   await runSuper(args);
+  console.log("Deployed");
   // Force run the generateTsAbis script
   await generateTsAbis(hre);
 });
